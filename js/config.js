@@ -6,7 +6,7 @@
  *   contactUrl: 'mailto:you@example.com'
  */
 window.SVERKA_CONFIG = {
-  contactUrl: '#contact',            // ← ЗАГЛУШКА: подставьте свой контакт
-  contactLabel: 'Написать эксперту',
+  contactUrl: 'https://t.me/tibray',  // Telegram автора
+  contactLabel: 'Написать в Telegram',
   auditPrice: 'Экспресс-аудит — по договорённости'
 };
