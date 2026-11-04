@@ -316,6 +316,11 @@
   // Анализ
   // ---------------------------------------------------------------------------
   function r1(x) { return Math.round(x * 10) / 10; }
+  /** «1 раз», «3 раза», «5 раз» */
+  function times(n) {
+    var m10 = n % 10, m100 = n % 100;
+    return n + (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? ' раза' : ' раз');
+  }
   function r0(x) { return Math.round(x); }
   function addDays(iso, n) {
     var p = iso.split('-');
@@ -493,10 +498,10 @@
         issues.push({
           type: 'wrongfuel', severity: 'red',
           text: 'По её картам куплено не то топливо (' + wrongFuel.map(function (f) { return f.fuelType; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') +
-            ' вместо ' + c.fuelTypes.join(', ') + '): ' + wrongFuel.length + ' раз, ' + fmtNum(r0(wrongL)) + ' л' + (wrongTg ? ' ≈ ' + fmtNum(r0(wrongTg)) + ' ₸' : '') + ' — заправляли другую машину'
+            ' вместо ' + c.fuelTypes.join(', ') + '): ' + times(wrongFuel.length) + ', ' + fmtNum(r0(wrongL)) + ' л' + (wrongTg ? ' ≈ ' + fmtNum(r0(wrongTg)) + ' ₸' : '') + ' — заправляли другую машину'
         });
       }
-      if (otherGrade) issues.push({ type: 'grade', severity: 'yellow', text: 'Заправки другой маркой топлива: ' + otherGrade + ' раз' });
+      if (otherGrade) issues.push({ type: 'grade', severity: 'yellow', text: 'Заправки другой маркой топлива: ' + times(otherGrade) });
 
       // GPS против путевых листов
       var wbDiffPct = null, wbFlag = false;
@@ -607,8 +612,8 @@
       // Заправки по чужим картам на эту машину и с карт этой машины на другие
       var foreignIn = c.fuelings.filter(function (f) { return f.foreign; });
       var foreignOut = foreignUses.filter(function (f) { return f.ownerCar === c.car; });
-      if (foreignIn.length) issues.push({ type: 'foreignIn', severity: 'yellow', text: 'Заправлялась по чужим картам: ' + foreignIn.length + ' раз' });
-      if (foreignOut.length) issues.push({ type: 'foreignOut', severity: 'yellow', text: 'Её карты заправляли другие машины: ' + foreignOut.length + ' раз' });
+      if (foreignIn.length) issues.push({ type: 'foreignIn', severity: 'yellow', text: 'Заправлялась по чужим картам: ' + times(foreignIn.length) });
+      if (foreignOut.length) issues.push({ type: 'foreignOut', severity: 'yellow', text: 'Её карты заправляли другие машины: ' + times(foreignOut.length) });
 
       // Картами этой машины заправляли машины не из парка — топливо ушло на сторону
       var outsiderOut = outsiderFuel.filter(function (f) { return f.ownerCar === c.car; });
@@ -619,7 +624,7 @@
         issues.push({
           type: 'outsider', severity: 'red',
           text: 'Её картой заправляли машины не из вашего парка (' + Object.keys(outPlates).join(', ') + '): ' +
-            outsiderOut.length + ' раз, ' + fmtNum(r0(outL)) + ' л' + (outTg ? ' ≈ ' + fmtNum(r0(outTg)) + ' ₸' : '')
+            times(outsiderOut.length) + ', ' + fmtNum(r0(outL)) + ' л' + (outTg ? ' ≈ ' + fmtNum(r0(outTg)) + ' ₸' : '')
         });
       }
       var reserveUses = c.fuelings.filter(function (f) { return f.reserveCard; });
