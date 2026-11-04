@@ -1,0 +1,9 @@
+{
+  "name": "sverka-gsm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Сверка ГСМ: проверка расхода топлива по GPS, путевым листам и топливным картам — в браузере",
+  "scripts": {
+    "test": "node tests/run.js"
+  }
+}
