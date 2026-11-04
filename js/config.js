@@ -8,5 +8,5 @@
 window.SVERKA_CONFIG = {
   contactUrl: 'https://t.me/tibray',  // Telegram автора
   contactLabel: 'Написать в Telegram',
-  auditPrice: 'Экспресс-аудит — по договорённости'
+  auditPrice: 'Первый разбор — бесплатно. Пришлите итог проверки — отвечу в течение дня и скажу, что смотреть в первую очередь.'
 };
