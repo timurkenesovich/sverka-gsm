@@ -580,7 +580,7 @@
 
     list.sort(function (a, b) { return a.car.localeCompare(b.car, 'ru', { numeric: true }); });
 
-    // «Чьи карты?»: перетоки между машинами
+    // «Куда ушло топливо»: перетоки между машинами парка
     var flows = {};
     foreignUses.forEach(function (f) {
       var k = (f.ownerCar || '?') + '→' + f.actualCar + '|' + f.cardKey;
