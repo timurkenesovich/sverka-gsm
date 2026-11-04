@@ -42,6 +42,7 @@
       { key: 'station', label: 'АЗС', required: false, syn: ['азс', 'станция', 'адрес', 'station'] },
       { key: 'liters', label: 'Литры', required: true, syn: ['литр', 'объем', 'кол-во', 'количество', 'liters', 'volume'] },
       { key: 'amount', label: 'Сумма, тенге', required: false, syn: ['сумма', 'стоимость', 'тенге', 'amount', 'тг'] },
+      { key: 'fuelType', label: 'Вид топлива (АИ-92, ДТ…)', required: false, syn: ['вид топлива', 'марка топлива', 'нефтепродукт', 'топливо', 'продукт', 'товар', 'fuel'] },
       { key: 'car', label: 'Госномер (если АЗС его пишет)', required: false, syn: ['госномер', 'гос номер', 'гос. номер', 'машина', 'автомобиль', 'тс'] }
     ],
     refs: [
@@ -50,7 +51,9 @@
       { key: 'cards', label: 'Закреплённые карты', required: false, syn: ['закрепленные карты', 'закреплен', 'карты', 'карта'] },
       { key: 'reserve', label: 'Резервные карты', required: false, syn: ['резерв'] },
       { key: 'startFuel', label: 'Остаток на начало, л', required: false, syn: ['остаток на начало', 'на начало', 'начало'] },
-      { key: 'endFuel', label: 'Остаток на конец, л', required: false, syn: ['остаток на конец', 'на конец', 'конец'] }
+      { key: 'endFuel', label: 'Остаток на конец, л', required: false, syn: ['остаток на конец', 'на конец', 'конец'] },
+      { key: 'fuelType', label: 'Вид топлива', required: false, syn: ['вид топлива', 'марка топлива', 'топливо', 'марка'] },
+      { key: 'tank', label: 'Объём бака, л', required: false, syn: ['объем бака', 'бак', 'емкость'] }
     ]
   };
 
@@ -155,6 +158,19 @@
     return digits.length >= 3 ? digits : plateKey(str);
   }
 
+  /** Вид топлива к общему виду: «Аи-92», «92», «AI92» → «АИ-92»; «Дизель», «ДТ-Л» → «ДТ»; «Пропан» → «ГАЗ». */
+  function fuelKind(s) {
+    var t = lc(s).replace(/[\s\-_.]/g, '');
+    if (!t) return '';
+    if (/дт|диз|diesel|солярк/.test(t)) return 'ДТ';
+    if (/газ|пропан|метан|lpg|cng|суг/.test(t)) return 'ГАЗ';
+    var m = t.match(/(80|92|95|98|100)/);
+    if (m) return 'АИ-' + m[1];
+    return String(s).trim().toUpperCase();
+  }
+  /** Группа топлива: бензин / дизель / газ — заправка другой группы почти наверняка не в эту машину. */
+  function fuelGroup(kind) { return kind === 'ДТ' ? 'дизель' : kind === 'ГАЗ' ? 'газ' : /^АИ-/.test(kind) ? 'бензин' : kind; }
+
   /** Список карт из ячейки: «1111, 2222; 3333» → ['1111','2222','3333'] */
   function splitCards(v) {
     if (v == null || v === '') return [];
@@ -251,6 +267,7 @@
           card: String(card).trim(), date: p.date, time: t,
           station: String(get(row, 'station') || '').trim(),
           liters: liters, amount: parseNumber(get(row, 'amount')),
+          fuelType: String(get(row, 'fuelType') || '').trim(),
           car: String(get(row, 'car') || '').trim()
         });
       } else if (kind === 'refs') {
@@ -259,7 +276,8 @@
         out.push({
           car: car, norm: parseNumber(get(row, 'norm')),
           cards: splitCards(get(row, 'cards')), reserve: splitCards(get(row, 'reserve')),
-          startFuel: parseNumber(get(row, 'startFuel')) || 0, endFuel: parseNumber(get(row, 'endFuel')) || 0
+          startFuel: parseNumber(get(row, 'startFuel')) || 0, endFuel: parseNumber(get(row, 'endFuel')) || 0,
+          fuelTypes: splitCards(get(row, 'fuelType')), tank: parseNumber(get(row, 'tank'))
         });
       }
     });
@@ -321,7 +339,7 @@
       if (!k) return null;
       if (!cars[k]) {
         cars[k] = {
-          key: k, car: String(name).trim(), norm: null, cards: [], reserve: [], startFuel: 0, endFuel: 0,
+          key: k, car: String(name).trim(), norm: null, cards: [], reserve: [], startFuel: 0, endFuel: 0, fuelTypes: [], tank: null,
           inRefs: false, gpsDays: {}, wbDays: {}, waybills: [], fuelings: [], drivers: {}
         };
       }
@@ -338,6 +356,8 @@
       if (r.norm != null && r.norm > 0) c.norm = r.norm;
       c.startFuel = r.startFuel || 0;
       c.endFuel = r.endFuel || 0;
+      c.fuelTypes = (r.fuelTypes || []).map(fuelKind).filter(Boolean);
+      if (r.tank > 0) c.tank = r.tank;
       [['cards', false], ['reserve', true]].forEach(function (pair) {
         (r[pair[0]] || []).forEach(function (cd) {
           var ck = cardKey(cd);
@@ -379,7 +399,7 @@
         var oAmount = f.amount != null ? f.amount : (S.defaultPrice ? f.liters * S.defaultPrice : 0);
         var orec = {
           id: idx, card: f.card, cardKey: ck, date: f.date, time: f.time, station: f.station,
-          liters: f.liters, amount: oAmount, price: f.amount != null && f.liters > 0 ? f.amount / f.liters : null,
+          liters: f.liters, amount: oAmount, price: f.amount != null && f.liters > 0 ? f.amount / f.liters : null, fuelType: f.fuelType ? fuelKind(f.fuelType) : '',
           ownerCar: owner ? owner.car : null, actualCar: String(f.car).trim(), plateKey: pk,
           reserveCard: !!(cardOwner[ck] && cardOwner[ck].reserve), foreign: true, outsider: true,
           flags: ['Машина ' + String(f.car).trim() + ' не из вашего парка']
@@ -399,7 +419,7 @@
       var amount = f.amount != null ? f.amount : (S.defaultPrice ? f.liters * S.defaultPrice : 0);
       var rec = {
         id: idx, card: f.card, cardKey: ck, date: f.date, time: f.time, station: f.station,
-        liters: f.liters, amount: amount, price: price,
+        liters: f.liters, amount: amount, price: price, fuelType: f.fuelType ? fuelKind(f.fuelType) : '',
         ownerCar: owner ? owner.car : null, actualCar: target ? target.car : null,
         reserveCard: !!(cardOwner[ck] && cardOwner[ck].reserve), foreign: false, flags: []
       };
@@ -453,6 +473,31 @@
       var avgPrice = pricedL ? pricedTg / pricedL : (S.defaultPrice || 0);
       var issues = [];
 
+      // Не то топливо: карта дизельной машины, а куплен бензин (и наоборот) — заправили другую машину.
+      // Такие литры в бак этой машины не попали: в расход их не берём, а целиком считаем необъяснёнными.
+      var wrongFuel = [], wrongL = 0, wrongTg = 0, otherGrade = 0;
+      if (c.fuelTypes.length) {
+        var groups = c.fuelTypes.map(fuelGroup);
+        c.fuelings.forEach(function (f) {
+          if (!f.fuelType || c.fuelTypes.indexOf(f.fuelType) >= 0) return;
+          if (groups.indexOf(fuelGroup(f.fuelType)) < 0) {
+            f.wrongFuel = true; wrongFuel.push(f); wrongL += f.liters; wrongTg += f.amount;
+            f.flags.push('Не то топливо: ' + f.fuelType + ', а у машины ' + c.fuelTypes.join(', ') + ' — заправлена другая машина');
+          } else {
+            otherGrade++;
+            f.flags.push('Другая марка: ' + f.fuelType + ' вместо ' + c.fuelTypes.join(', '));
+          }
+        });
+      }
+      if (wrongFuel.length) {
+        issues.push({
+          type: 'wrongfuel', severity: 'red',
+          text: 'По её картам куплено не то топливо (' + wrongFuel.map(function (f) { return f.fuelType; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') +
+            ' вместо ' + c.fuelTypes.join(', ') + '): ' + wrongFuel.length + ' раз, ' + fmtNum(r0(wrongL)) + ' л' + (wrongTg ? ' ≈ ' + fmtNum(r0(wrongTg)) + ' ₸' : '') + ' — заправляли другую машину'
+        });
+      }
+      if (otherGrade) issues.push({ type: 'grade', severity: 'yellow', text: 'Заправки другой маркой топлива: ' + otherGrade + ' раз' });
+
       // GPS против путевых листов
       var wbDiffPct = null, wbFlag = false;
       if (hasGps && hasWb && gpsKm > 0) {
@@ -485,13 +530,19 @@
       // Топливо против пробега
       var baseKm = hasGps ? gpsKm : (hasWb ? wbKm : 0);
       var baseSrc = hasGps ? 'GPS' : (hasWb ? 'путевые листы' : null);
-      var consumed = c.startFuel + fuelL - c.endFuel;
+      var consumed = c.startFuel + fuelL - wrongL - c.endFuel;
       var expectedL = null, excessL = null, excessPct = null, excessTg = 0, calcKm = null, unexplainedL = 0, fuelFlag = false;
       if (c.norm) {
         calcKm = consumed / c.norm * 100;
         expectedL = baseKm * c.norm / 100;
         excessL = consumed - expectedL;
         excessPct = expectedL > 0 ? excessL / expectedL * 100 : (consumed > 0 ? Infinity : 0);
+        if (excessPct < -S.redPct && expectedL > 0) {
+          issues.push({
+            type: 'deficit', severity: 'yellow',
+            text: 'Заправок по её картам на ' + fmtNum(r0(-excessL)) + ' л меньше, чем нужно на пробег (' + fmtPct(excessPct) + ') — возможно, её заправляли картой другой машины или за наличные'
+          });
+        }
         if (excessPct > S.fuelTolPct && excessL > 1) {
           fuelFlag = true;
           unexplainedL = excessL;
@@ -502,7 +553,9 @@
               (isFinite(excessPct) ? ' (+' + fmtPct(excessPct) + ')' : '') + (excessTg ? ' ≈ ' + fmtNum(r0(excessTg)) + ' ₸' : '')
           });
         }
-      } else if (fuelL > 0 || baseKm > 0) {
+      }
+      unexplainedL += wrongL; excessTg += wrongTg;
+      if (!c.norm && (fuelL > 0 || baseKm > 0)) {
         issues.push({ type: 'nonorm', severity: 'yellow', text: 'Нет нормы расхода в справочнике — слив не проверен' });
       }
       if (!hasGps && (fuelL > 0 || hasWb)) issues.push({ type: 'nogps', severity: 'yellow', text: 'Нет данных GPS — сверка по путевым листам' });
@@ -518,12 +571,36 @@
       var idleFuel = [];
       if (hasGps) {
         c.fuelings.forEach(function (f) {
-          var today = c.gpsDays[f.date] || 0, next = c.gpsDays[addDays(f.date, 1)] || 0;
-          if (today === 0 && next === 0) { f.flags.push('Машина в этот и следующий день не ездила (GPS)'); idleFuel.push(f); }
+          if (!(c.gpsDays[f.date] > 0)) { f.flags.push('Машина в этот день не ездила (GPS)'); idleFuel.push(f); }
         });
         if (idleFuel.length) {
           var il = 0; idleFuel.forEach(function (f) { il += f.liters; });
-          issues.push({ type: 'idle', severity: 'yellow', text: 'Заправки в дни простоя: ' + idleFuel.length + ' шт., ' + fmtNum(r0(il)) + ' л' });
+          issues.push({ type: 'idle', severity: 'yellow', text: 'Заправки в дни, когда машина не ездила: ' + idleFuel.length + ' шт., ' + fmtNum(r0(il)) + ' л' });
+        }
+      }
+
+      // В бак не помещается: оцениваем остаток по пробегу и норме. С запасом в пользу водителя —
+      // считаем, что весь пробег дня проехан до заправки, и даём допуск 5% бака (не меньше 5 л).
+      var overflow = [], overflowL = 0;
+      if (c.tank && c.norm && hasGps) {
+        var fillsByDay = {};
+        c.fuelings.forEach(function (f) { if (!f.wrongFuel) (fillsByDay[f.date] = fillsByDay[f.date] || []).push(f); });
+        var level = Math.min(c.startFuel || 0, c.tank), tol = Math.max(5, c.tank * 0.05);
+        days.forEach(function (day) {
+          var use = (c.gpsDays[day] || 0) * c.norm / 100;
+          (fillsByDay[day] || []).forEach(function (f) {
+            var before = Math.max(level - use, 0), free = c.tank - before;
+            if (f.liters > free + tol) {
+              var over = f.liters - free;
+              overflowL += over; overflow.push(f); f.overflowL = over;
+              f.flags.push('Не помещается в бак: заправлено ' + fmtNum(f.liters, 1) + ' л, свободно было не больше ' + fmtNum(Math.max(free, 0), 0) + ' л');
+            }
+            level = Math.min(before + f.liters, c.tank) + use;
+          });
+          level = Math.max(level - use, 0);
+        });
+        if (overflow.length) {
+          issues.push({ type: 'overflow', severity: overflowL > 20 ? 'red' : 'yellow', text: 'Заправки больше, чем помещается в бак (' + fmtNum(c.tank) + ' л): ' + overflow.length + ' раз, сверх места ' + fmtNum(r0(overflowL)) + ' л — топливо ушло в канистру или другую машину' });
         }
       }
 
@@ -574,6 +651,8 @@
         fuelings: c.fuelings, waybills: wsorted, odoGaps: odoGaps, idleFuel: idleFuel,
         foreignIn: foreignIn, foreignOut: foreignOut, reserveUses: reserveUses,
         outsiderOut: outsiderOut, outsiderL: outL, outsiderTg: outTg,
+        fuelTypes: c.fuelTypes, tank: c.tank, wrongFuel: wrongFuel, wrongL: wrongL, wrongTg: wrongTg,
+        overflow: overflow, overflowL: overflowL,
         daily: daily, issues: issues, status: sev
       };
     });
@@ -624,6 +703,13 @@
       tot[c.status]++;
     });
     tot.fuelTg += unknownTg; tot.fuelL += unknownL;
+    tot.wrongL = 0; tot.wrongTg = 0; tot.wrongCount = 0; tot.overflowCount = 0; tot.idleCount = 0;
+    tot.deficitL = 0; tot.deficitCars = 0;
+    list.forEach(function (c) {
+      tot.wrongL += c.wrongL; tot.wrongTg += c.wrongTg; tot.wrongCount += c.wrongFuel.length;
+      tot.overflowCount += c.overflow.length; tot.idleCount += c.idleFuel.length;
+      if (c.issues.some(function (i) { return i.type === 'deficit'; })) { tot.deficitCars++; tot.deficitL += -c.excessL; }
+    });
     tot.outsiderL = 0; tot.outsiderTg = 0; tot.outsiderCount = outsiderFuel.length;
     outsiderFuel.forEach(function (f) {
       tot.outsiderL += f.liters; tot.outsiderTg += f.amount;
@@ -661,7 +747,7 @@
   return {
     DEFAULT_SETTINGS: DEFAULT_SETTINGS, FIELDS: FIELDS,
     parseNumber: parseNumber, parseDate: parseDate, parseDateTime: parseDateTime, parseTime: parseTime,
-    plateKey: plateKey, cardKey: cardKey, splitCards: splitCards,
+    plateKey: plateKey, cardKey: cardKey, splitCards: splitCards, fuelKind: fuelKind,
     tableFromArrays: tableFromArrays, autoMap: autoMap, missingFields: missingFields, normalize: normalize,
     parseCSV: parseCSV, analyze: analyze, addDays: addDays,
     fmtNum: fmtNum, fmtPct: fmtPct, fmtDate: fmtDate, r1: r1
