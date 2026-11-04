@@ -364,12 +364,36 @@
       if (w.driver) c.drivers[w.driver] = true;
     });
 
+    // Парк — машины из справочника, GPS и путевых листов. Госномер из выгрузки АЗС,
+    // которого нет в парке, — это чужая машина, заправленная картой компании.
+    var fleet = {};
+    Object.keys(cars).forEach(function (k) { fleet[k] = true; });
+
     // Заправки: на какую машину отнести
-    var cardStats = {}, unknownFuel = [], foreignUses = [], allDates = [];
+    var cardStats = {}, unknownFuel = [], foreignUses = [], outsiderFuel = [], allDates = [];
     fuel.forEach(function (f, idx) {
       var ck = cardKey(f.card);
       var owner = cardOwner[ck] ? cars[cardOwner[ck].carKey] : null;
-      var actual = f.car ? car(f.car) : null;
+      var pk = f.car ? plateKey(f.car) : '';
+      if (pk && !fleet[pk]) {
+        var oAmount = f.amount != null ? f.amount : (S.defaultPrice ? f.liters * S.defaultPrice : 0);
+        var orec = {
+          id: idx, card: f.card, cardKey: ck, date: f.date, time: f.time, station: f.station,
+          liters: f.liters, amount: oAmount, price: f.amount != null && f.liters > 0 ? f.amount / f.liters : null,
+          ownerCar: owner ? owner.car : null, actualCar: String(f.car).trim(), plateKey: pk,
+          reserveCard: !!(cardOwner[ck] && cardOwner[ck].reserve), foreign: true, outsider: true,
+          flags: ['Машина ' + String(f.car).trim() + ' не из вашего парка']
+        };
+        allDates.push(f.date);
+        if (!cardStats[ck]) cardStats[ck] = { card: f.card, owner: owner ? owner.car : null, reserve: orec.reserveCard, count: 0, liters: 0, amount: 0, byCar: {} };
+        var ocs = cardStats[ck], oname = orec.actualCar + ' (не из парка)';
+        ocs.count++; ocs.liters += f.liters; ocs.amount += oAmount;
+        ocs.byCar[oname] = ocs.byCar[oname] || { liters: 0, amount: 0, count: 0, outsider: true };
+        ocs.byCar[oname].liters += f.liters; ocs.byCar[oname].amount += oAmount; ocs.byCar[oname].count++;
+        outsiderFuel.push(orec);
+        return;
+      }
+      var actual = pk ? car(f.car) : null;
       var target = actual || owner;
       var price = f.amount != null && f.liters > 0 ? f.amount / f.liters : null;
       var amount = f.amount != null ? f.amount : (S.defaultPrice ? f.liters * S.defaultPrice : 0);
@@ -508,6 +532,19 @@
       var foreignOut = foreignUses.filter(function (f) { return f.ownerCar === c.car; });
       if (foreignIn.length) issues.push({ type: 'foreignIn', severity: 'yellow', text: 'Заправлялась по чужим картам: ' + foreignIn.length + ' раз' });
       if (foreignOut.length) issues.push({ type: 'foreignOut', severity: 'yellow', text: 'Её карты заправляли другие машины: ' + foreignOut.length + ' раз' });
+
+      // Картами этой машины заправляли машины не из парка — топливо ушло на сторону
+      var outsiderOut = outsiderFuel.filter(function (f) { return f.ownerCar === c.car; });
+      var outL = 0, outTg = 0, outPlates = {};
+      outsiderOut.forEach(function (f) { outL += f.liters; outTg += f.amount; outPlates[f.actualCar] = true; });
+      if (outsiderOut.length) {
+        unexplainedL += outL; excessTg += outTg;
+        issues.push({
+          type: 'outsider', severity: 'red',
+          text: 'Её картой заправляли машины не из вашего парка (' + Object.keys(outPlates).join(', ') + '): ' +
+            outsiderOut.length + ' раз, ' + fmtNum(r0(outL)) + ' л' + (outTg ? ' ≈ ' + fmtNum(r0(outTg)) + ' ₸' : '')
+        });
+      }
       var reserveUses = c.fuelings.filter(function (f) { return f.reserveCard; });
 
       // Подневные ряды для графиков
@@ -536,13 +573,14 @@
         unexplainedL: unexplainedL, unexplainedTg: excessTg,
         fuelings: c.fuelings, waybills: wsorted, odoGaps: odoGaps, idleFuel: idleFuel,
         foreignIn: foreignIn, foreignOut: foreignOut, reserveUses: reserveUses,
+        outsiderOut: outsiderOut, outsiderL: outL, outsiderTg: outTg,
         daily: daily, issues: issues, status: sev
       };
     });
 
     list.sort(function (a, b) { return a.car.localeCompare(b.car, 'ru', { numeric: true }); });
 
-    // «Чьи карты?»: перетоки между машинами
+    // «Куда ушло топливо»: перетоки между машинами парка
     var flows = {};
     foreignUses.forEach(function (f) {
       var k = (f.ownerCar || '?') + '→' + f.actualCar + '|' + f.cardKey;
@@ -558,11 +596,22 @@
 
     var cardList = Object.keys(cardStats).map(function (k) {
       var cs = cardStats[k];
-      cs.byCarList = Object.keys(cs.byCar).map(function (n) { return { car: n, liters: cs.byCar[n].liters, amount: cs.byCar[n].amount, count: cs.byCar[n].count, own: n === cs.owner }; })
+      cs.byCarList = Object.keys(cs.byCar).map(function (n) { return { car: n, liters: cs.byCar[n].liters, amount: cs.byCar[n].amount, count: cs.byCar[n].count, own: n === cs.owner, outsider: !!cs.byCar[n].outsider }; })
         .sort(function (a, b) { return b.liters - a.liters; });
-      cs.foreignL = 0; cs.byCarList.forEach(function (x) { if (!x.own) cs.foreignL += x.liters; });
+      cs.foreignL = 0; cs.outsiderL = 0;
+      cs.byCarList.forEach(function (x) { if (!x.own) cs.foreignL += x.liters; if (x.outsider) cs.outsiderL += x.liters; });
       return cs;
     }).sort(function (a, b) { return String(a.owner || 'яяя').localeCompare(String(b.owner || 'яяя'), 'ru', { numeric: true }); });
+
+    // Куда ушло топливо: машины не из парка, по карте и госномеру
+    var outs = {};
+    outsiderFuel.forEach(function (f) {
+      var k = f.cardKey + '|' + f.plateKey;
+      if (!outs[k]) outs[k] = { card: f.card, ownerCar: f.ownerCar, plate: f.actualCar, count: 0, liters: 0, amount: 0, rows: [] };
+      var o = outs[k];
+      o.count++; o.liters += f.liters; o.amount += f.amount; o.rows.push(f);
+    });
+    var outsiderList = Object.keys(outs).map(function (k) { return outs[k]; }).sort(function (a, b) { return b.amount - a.amount || b.liters - a.liters; });
 
     // Итоги
     var unknownL = 0, unknownTg = 0;
@@ -575,6 +624,12 @@
       tot[c.status]++;
     });
     tot.fuelTg += unknownTg; tot.fuelL += unknownL;
+    tot.outsiderL = 0; tot.outsiderTg = 0; tot.outsiderCount = outsiderFuel.length;
+    outsiderFuel.forEach(function (f) {
+      tot.outsiderL += f.liters; tot.outsiderTg += f.amount;
+      tot.fuelL += f.liters; tot.fuelTg += f.amount;
+      if (!f.ownerCar) { tot.unexplainedL += f.liters; tot.unexplainedTg += f.amount; } // с машиной-владельцем уже учтено в её итоге
+    });
 
     var rank = { red: 2, yellow: 1, green: 0 };
     var top5 = list.filter(function (c) { return c.status !== 'green'; }).sort(function (a, b) {
@@ -584,6 +639,7 @@
 
     return {
       settings: S, period: period, days: days, cars: list, cards: cardList, flows: flowList,
+      outsiders: outsiderList, outsiderFuel: outsiderFuel,
       unknownFuel: unknownFuel, cardConflicts: cardConflicts, totals: tot, top5: top5
     };
   }

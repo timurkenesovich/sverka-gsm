@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Сверка ГСМ — проверка за вечер</title>
-  <meta name="description" content="Загрузите GPS, путевые листы и выгрузку АЗС — и увидите, где расход топлива не сходится с пробегом. Всё считается в браузере, данные никуда не отправляются.">
+  <meta name="description" content="Загрузите GPS, путевые листы и выгрузку АЗС — и увидите, куда уходит топливо по картам и где расход не сходится с пробегом. Всё считается в браузере, данные никуда не отправляются.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23163a56'/%3E%3Cpath d='M16 6c-4 6-7 9.5-7 13a7 7 0 0 0 14 0c0-3.5-3-7-7-13z' fill='%23f5b83d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -20,8 +20,8 @@
     <section class="hero">
       <div class="wrap">
         <p class="eyebrow">Проверка за вечер · для автопарков от 5 до 50 машин</p>
-        <h1>Где расход топлива не сходится с пробегом — и чьими картами заправляются ваши машины</h1>
-        <p class="lead">Загрузите три выгрузки за месяц: GPS, путевые листы и отчёт по топливным картам. Через минуту увидите сумму расхождений в тенге, светофор по каждой машине и перетоки карт.</p>
+        <h1>Куда уходит топливо по вашим картам — и где расход не сходится с пробегом</h1>
+        <p class="lead">Загрузите три выгрузки за месяц: GPS, путевые листы и отчёт по топливным картам. Через минуту увидите сумму расхождений в тенге, светофор по каждой машине и заправки чужих машин картами компании.</p>
         <div class="privacy" role="note">
           <svg class="privacy-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.8-4.8 1.4 1.4-6.2 6.2z"/></svg>
           <div>
@@ -33,7 +33,7 @@
           <button class="btn btn-primary btn-lg" id="btnDemo" type="button">Попробовать на примере</button>
           <a class="btn btn-ghost btn-lg" href="#upload">Загрузить свои данные</a>
         </div>
-        <p class="hero-note">Пример — выдуманный автопарк из 12 машин, в котором спрятаны три нарушения. Найдёте их за минуту.</p>
+        <p class="hero-note">Пример — выдуманный автопарк из 12 машин, в котором спрятаны четыре нарушения. Найдёте их за минуту.</p>
       </div>
     </section>
 
@@ -81,7 +81,7 @@
         <nav class="tabs" role="tablist" aria-label="Разделы отчёта">
           <button role="tab" class="tab" data-tab="summary" aria-selected="true">Сводка</button>
           <button role="tab" class="tab" data-tab="car" aria-selected="false">По машине</button>
-          <button role="tab" class="tab" data-tab="cards" aria-selected="false">Чьи карты?</button>
+          <button role="tab" class="tab" data-tab="cards" aria-selected="false">Куда ушло топливо</button>
           <button role="tab" class="tab" data-tab="export" aria-selected="false">Отчёт</button>
         </nav>
         <div class="panel" id="panel-summary" data-panel="summary"></div>
