@@ -7,6 +7,7 @@
  *   2. ДЕМО 09 — чужая карта: машина стоит в ремонте, а её картой заправляют ДЕМО 05.
  *   3. ДЕМО 07 — подкрученный одометр: в путевых листах пробег на ~20% больше, чем по GPS,
  *      и под этот «лишний» пробег списано топливо.
+ *   4. Карта ДЕМО 10 — заправляет машину «ЧУЖАЯ 77», которой нет в парке (по воскресеньям).
  * Генератор детерминированный (фиксированное зерно) — данные всегда одинаковые.
  */
 (function (root, factory) {
@@ -55,6 +56,8 @@
   function plate(n) { return 'ДЕМО ' + pad(n); }
   function card(n, k) { return 'DEMO-' + (k ? '2' : '1') + pad(n) + (k ? '2' : '1'); }
   var RESERVE_CARD = 'DEMO-3990'; // резервная карта бывшей машины, теперь у ДЕМО 11
+  var OUTSIDER = 'ЧУЖАЯ 77';      // выдуманный номер машины не из парка
+  var OUTSIDER_DAYS = [4, 11, 18, 25]; // воскресенья октября 2026
 
   function generate() {
     var R = rng(20261031);
@@ -128,6 +131,13 @@
       refs.push([p, ru(c.norm, 1), cards.join(', '), c.n === 11 ? RESERVE_CARD : '', start, end]);
     });
 
+    // картой ДЕМО 10 заправляют чужую машину; отдельное зерно — чтобы не менять данные остальных машин
+    var R2 = rng(77);
+    OUTSIDER_DAYS.forEach(function (d) {
+      var liters = Math.round((42 + R2() * 10) * 10) / 10;
+      fuelRows.push(fuelRow(R2, d, 11 + Math.floor(R2() * 4), card(10, 0), liters, { fuel: 'АИ-92' }, OUTSIDER));
+    });
+
     fuelRows.sort(function (a, b) { return a._k < b._k ? -1 : 1; });
     var fuel = [['Номер карты', 'Дата и время', 'АЗС', 'Топливо', 'Кол-во, л', 'Сумма, тг', 'Госномер ТС']]
       .concat(fuelRows.map(function (r) { return r.row; }));
@@ -156,5 +166,5 @@
     }).join('\r\n');
   }
 
-  return { generate: generate, toCSV: toCSV, plate: plate, card: card, RESERVE_CARD: RESERVE_CARD };
+  return { generate: generate, toCSV: toCSV, plate: plate, card: card, RESERVE_CARD: RESERVE_CARD, OUTSIDER: OUTSIDER };
 });

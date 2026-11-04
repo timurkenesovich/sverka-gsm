@@ -165,9 +165,45 @@ test('ДЕМО 07 — топливо списано под накрученны�
   assert.ok(c.excessPct > 15);
 });
 
+console.log('\nНарушение 4: картой компании заправляют чужую машину (карта ДЕМО 10 → ЧУЖАЯ 77)');
+test('заправки машины не из парка найдены и посчитаны в тенге', function () {
+  assert.strictEqual(res.outsiders.length, 1);
+  var o = res.outsiders[0];
+  assert.strictEqual(o.plate, Demo.OUTSIDER);
+  assert.strictEqual(o.ownerCar, Demo.plate(10));
+  assert.strictEqual(o.count, 4);
+  assert.ok(o.liters > 150 && o.amount > 30000, o.liters + ' л, ' + o.amount + ' ₸');
+});
+test('ДЕМО 10 — красная, сумма в её «не объяснено»; сама машина расходует честно', function () {
+  var c = carOf(res, 10);
+  assert.strictEqual(c.status, 'red');
+  assert.ok(c.issues.some(function (i) { return i.type === 'outsider'; }));
+  assert.ok(!c.fuelFlag, 'перерасход ' + c.excessPct);
+  assert.ok(Math.abs(c.unexplainedTg - res.outsiders[0].amount) < 0.01);
+});
+test('чужая машина не попадает в список машин парка', function () {
+  assert.ok(!res.cars.some(function (c) { return c.car === Demo.OUTSIDER; }));
+});
+test('без госномера в АЗС те же заправки дают перерасход у ДЕМО 10', function () {
+  var r2 = run(demo, { dropFuelCar: true });
+  var c10 = carOf(r2, 10);
+  assert.ok(c10.fuelFlag, 'перерасход ' + c10.excessPct);
+  assert.strictEqual(r2.outsiders.length, 0);
+});
+test('незакреплённая карта + чужая машина: считается в итоге один раз', function () {
+  var r = Core.analyze({
+    gps: [{ car: 'A1', date: '2026-10-01', km: 100 }], waybills: [],
+    fuel: [{ card: '555', date: '2026-10-01', time: '', station: '', liters: 40, amount: 10000, car: 'B2' }],
+    refs: [{ car: 'A1', norm: 10, cards: ['111'], reserve: [] }]
+  });
+  assert.strictEqual(r.cars.length, 1);
+  assert.strictEqual(r.totals.unexplainedTg, 10000);
+  assert.strictEqual(r.totals.outsiderTg, 10000);
+});
+
 console.log('\nЧестные машины не подсвечиваются');
-test('8 машин зелёные, расхождения в пределах ±5%', function () {
-  [1, 2, 4, 6, 8, 10, 11, 12].forEach(function (n) {
+test('7 машин зелёные, расхождения в пределах ±5%', function () {
+  [1, 2, 4, 6, 8, 11, 12].forEach(function (n) {
     var c = carOf(res, n);
     assert.strictEqual(c.status, 'green', c.car + ': ' + c.issues.map(function (i) { return i.text; }).join('; '));
     assert.ok(Math.abs(c.wbDiffPct) <= 5);
@@ -179,14 +215,15 @@ test('разрывов одометра в демо нет', function () {
 });
 
 console.log('\nИтоги');
-test('ТОП-5: первые две — ДЕМО 03 и ДЕМО 07; итог в тенге > 0', function () {
-  var firstTwo = res.top5.slice(0, 2).map(function (c) { return c.car; }).sort();
-  assert.deepStrictEqual(firstTwo, [Demo.plate(3), Demo.plate(7)]);
+test('ТОП-5: первые три — ДЕМО 03, ДЕМО 10, ДЕМО 07; итог в тенге > 0', function () {
+  var firstThree = res.top5.slice(0, 3).map(function (c) { return c.car; });
+  assert.deepStrictEqual(firstThree, [Demo.plate(3), Demo.plate(10), Demo.plate(7)]);
   assert.ok(res.totals.unexplainedTg > 0);
-  assert.ok(Math.abs(res.totals.unexplainedL - carOf(res, 3).unexplainedL - carOf(res, 7).unexplainedL) < 0.01);
-  assert.strictEqual(res.totals.red, 2);
+  var sum = carOf(res, 3).unexplainedL + carOf(res, 7).unexplainedL + carOf(res, 10).unexplainedL;
+  assert.ok(Math.abs(res.totals.unexplainedL - sum) < 0.01);
+  assert.strictEqual(res.totals.red, 3);
   assert.strictEqual(res.totals.yellow, 2);
-  assert.strictEqual(res.totals.green, 8);
+  assert.strictEqual(res.totals.green, 7);
 });
 test('тот же результат через CSV', function () {
   var r3 = run(demo, { viaCSV: true });
