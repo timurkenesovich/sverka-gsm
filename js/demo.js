@@ -1,13 +1,15 @@
 /*
  * Сверка ГСМ — обезличенные демо-данные.
  * 12 машин, октябрь 2026. Все номера, карты, водители и АЗС выдуманы.
+ * Выгрузка АЗС — как настоящая: номер карты, дата и время, АЗС, топливо, литры, сумма. Госномера в ней нет.
  *
  * Заложенные нарушения:
  *   1. ДЕМО 03 — слив: вечерние заправки «в канистру», топлива больше, чем нужно на пробег.
- *   2. ДЕМО 09 — чужая карта: машина стоит в ремонте, а её картой заправляют ДЕМО 05.
+ *   2. Карта ДЕМО 09 — машина стоит в ремонте, а её картой заправляют ДЕМО 05
+ *      (у ДЕМО 09 — заправки в дни простоя и больше бака, у ДЕМО 05 — недорасход).
  *   3. ДЕМО 07 — подкрученный одометр: в путевых листах пробег на ~20% больше, чем по GPS,
  *      и под этот «лишний» пробег списано топливо.
- *   4. Карта ДЕМО 10 — заправляет машину «ЧУЖАЯ 77», которой нет в парке (по воскресеньям).
+ *   4. Карта ДЕМО 10 (дизельный грузовик) — по воскресеньям по ней покупают АИ-92: заправляют чужую машину.
  * Генератор детерминированный (фиксированное зерно) — данные всегда одинаковые.
  */
 (function (root, factory) {
@@ -56,7 +58,6 @@
   function plate(n) { return 'ДЕМО ' + pad(n); }
   function card(n, k) { return 'DEMO-' + (k ? '2' : '1') + pad(n) + (k ? '2' : '1'); }
   var RESERVE_CARD = 'DEMO-3990'; // резервная карта бывшей машины, теперь у ДЕМО 11
-  var OUTSIDER = 'ЧУЖАЯ 77';      // выдуманный номер машины не из парка
   var OUTSIDER_DAYS = [4, 11, 18, 25]; // воскресенья октября 2026
 
   function generate() {
@@ -64,7 +65,7 @@
     var gps = [['Госномер', 'Дата', 'Пробег за сутки, км']];
     var wbs = [['Гос. номер', 'Водитель', 'Дата', 'Одометр при выезде', 'Одометр при возвращении']];
     var fuelRows = [];
-    var refs = [['Машина', 'Норма, л/100 км', 'Закреплённые карты', 'Резервные карты', 'Остаток на начало, л', 'Остаток на конец, л']];
+    var refs = [['Машина', 'Норма, л/100 км', 'Закреплённые карты', 'Резервные карты', 'Остаток на начало, л', 'Остаток на конец, л', 'Топливо', 'Бак, л']];
     var truth = {};
 
     CARS.forEach(function (c) {
@@ -128,18 +129,18 @@
       }
       var end = Math.round(level);
       t.start = start; t.end = end;
-      refs.push([p, ru(c.norm, 1), cards.join(', '), c.n === 11 ? RESERVE_CARD : '', start, end]);
+      refs.push([p, ru(c.norm, 1), cards.join(', '), c.n === 11 ? RESERVE_CARD : '', start, end, c.fuel, c.tank]);
     });
 
-    // картой ДЕМО 10 заправляют чужую машину; отдельное зерно — чтобы не менять данные остальных машин
+    // по карте ДЕМО 10 (дизель) покупают бензин — заправляют чужую машину; отдельное зерно — чтобы не менять данные остальных машин
     var R2 = rng(77);
     OUTSIDER_DAYS.forEach(function (d) {
       var liters = Math.round((42 + R2() * 10) * 10) / 10;
-      fuelRows.push(fuelRow(R2, d, 11 + Math.floor(R2() * 4), card(10, 0), liters, { fuel: 'АИ-92' }, OUTSIDER));
+      fuelRows.push(fuelRow(R2, d, 11 + Math.floor(R2() * 4), card(10, 0), liters, { fuel: 'АИ-92' }, 'чужая'));
     });
 
     fuelRows.sort(function (a, b) { return a._k < b._k ? -1 : 1; });
-    var fuel = [['Номер карты', 'Дата и время', 'АЗС', 'Топливо', 'Кол-во, л', 'Сумма, тг', 'Госномер ТС']]
+    var fuel = [['Номер карты', 'Дата и время', 'АЗС', 'Топливо', 'Кол-во, л', 'Сумма, тг']]
       .concat(fuelRows.map(function (r) { return r.row; }));
 
     return { gps: gps, waybills: wbs, fuel: fuel, refs: refs, truth: truth };
@@ -152,7 +153,7 @@
     var dt = pad(d) + '.' + pad(MONTH) + '.' + YEAR + ' ' + pad(hour) + ':' + pad(min);
     return {
       _k: pad(d) + pad(hour) + pad(min) + p,
-      row: [cardNo, dt, st.name, c.fuel, ru(liters, 2), ru(Math.round(liters * price * 100) / 100, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ' '), p]
+      row: [cardNo, dt, st.name, c.fuel, ru(liters, 2), ru(Math.round(liters * price * 100) / 100, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')]
     };
   }
 
@@ -166,5 +167,5 @@
     }).join('\r\n');
   }
 
-  return { generate: generate, toCSV: toCSV, plate: plate, card: card, RESERVE_CARD: RESERVE_CARD, OUTSIDER: OUTSIDER };
+  return { generate: generate, toCSV: toCSV, plate: plate, card: card, RESERVE_CARD: RESERVE_CARD };
 });

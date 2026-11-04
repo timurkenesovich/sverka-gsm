@@ -12,7 +12,7 @@
   var KINDS = [
     { kind: 'gps', title: 'GPS', tag: 'обязательно', hint: 'Машина (госномер), дата, пробег за день в км.' },
     { kind: 'waybills', title: 'Путевые листы', tag: 'желательно', hint: 'Машина, водитель, дата, одометр на выезде и на возврате.' },
-    { kind: 'fuel', title: 'АЗС по топливным картам', tag: 'обязательно', hint: 'Номер карты, дата и время, АЗС, литры, сумма.' },
+    { kind: 'fuel', title: 'АЗС по топливным картам', tag: 'обязательно', hint: 'Номер карты, дата и время, АЗС, вид топлива, литры, сумма.' },
     { kind: 'refs', title: 'Справочник (файлом)', tag: 'необязательно', hint: 'Машина, норма л/100 км, карты. Можно не загружать — заполните таблицу ниже.' }
   ];
   var SAMPLE_NAMES = { gps: 'пример_GPS.csv', waybills: 'пример_путевые_листы.csv', fuel: 'пример_АЗС.csv', refs: 'пример_справочник.csv' };
@@ -157,6 +157,8 @@
       row.reserve = r.reserve.join(', ');
       row.startFuel = r.startFuel ? String(r.startFuel).replace('.', ',') : '0';
       row.endFuel = r.endFuel ? String(r.endFuel).replace('.', ',') : '0';
+      row.fuelType = (r.fuelTypes || []).join(', ');
+      row.tank = r.tank ? String(r.tank).replace('.', ',') : '';
     });
     renderRefs();
   }
@@ -170,23 +172,23 @@
     normalized('waybills').forEach(function (r) { names.push(r.car); });
     var added = false;
     names.forEach(function (n) {
-      if (!findRef(n)) { state.refs.push({ car: n, norm: '', cards: '', reserve: '', startFuel: '0', endFuel: '0' }); added = true; }
+      if (!findRef(n)) { state.refs.push({ car: n, norm: '', cards: '', reserve: '', startFuel: '0', endFuel: '0', fuelType: '', tank: '' }); added = true; }
     });
     if (added) state.refs.sort(function (a, b) { return a.car.localeCompare(b.car, 'ru', { numeric: true }); });
     renderRefs();
   }
-  var REF_COLS = ['car', 'norm', 'cards', 'reserve', 'startFuel', 'endFuel'];
+  var REF_COLS = ['car', 'norm', 'fuelType', 'tank', 'cards', 'reserve', 'startFuel', 'endFuel'];
   function renderRefs() {
     var tb = $('#refsTable tbody');
     if (!state.refs.length) {
-      tb.innerHTML = '<tr><td colspan="7" class="muted">Машины появятся здесь после загрузки GPS или путевых листов. Или добавьте вручную.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="9" class="muted">Машины появятся здесь после загрузки GPS или путевых листов. Или добавьте вручную.</td></tr>';
     } else {
       tb.innerHTML = state.refs.map(function (r, i) {
         return '<tr data-i="' + i + '">' + REF_COLS.map(function (c) {
           var v = r[c] == null ? '' : r[c];
           var need = c === 'norm' && !C.parseNumber(v);
-          var ph = { car: '000 AAA 00', norm: 'напр. 12,5', cards: 'карта1, карта2', reserve: '', startFuel: '0', endFuel: '0' }[c];
-          var im = (c === 'norm' || c === 'startFuel' || c === 'endFuel') ? ' inputmode="decimal"' : '';
+          var ph = { car: '000 AAA 00', norm: 'напр. 12,5', fuelType: 'АИ-92 или ДТ', tank: 'напр. 60', cards: 'карта1, карта2', reserve: '', startFuel: '0', endFuel: '0' }[c];
+          var im = (c === 'norm' || c === 'tank' || c === 'startFuel' || c === 'endFuel') ? ' inputmode="decimal"' : '';
           return '<td><input data-c="' + c + '" value="' + esc(v) + '" placeholder="' + ph + '"' + im + (need ? ' class="need"' : '') + ' aria-label="' + c + '"></td>';
         }).join('') + '<td><button class="del" type="button" title="Удалить строку" aria-label="Удалить">×</button></td></tr>';
       }).join('');
@@ -209,7 +211,8 @@
     return state.refs.filter(function (r) { return String(r.car || '').trim(); }).map(function (r) {
       return {
         car: String(r.car).trim(), norm: C.parseNumber(r.norm), cards: C.splitCards(r.cards), reserve: C.splitCards(r.reserve),
-        startFuel: C.parseNumber(r.startFuel) || 0, endFuel: C.parseNumber(r.endFuel) || 0
+        startFuel: C.parseNumber(r.startFuel) || 0, endFuel: C.parseNumber(r.endFuel) || 0,
+        fuelTypes: C.splitCards(r.fuelType), tank: C.parseNumber(r.tank)
       };
     });
   }
@@ -313,7 +316,7 @@
   }
 
   function mainIssue(c) {
-    var order = ['outsider', 'fuel', 'odometer', 'foreignOut', 'foreignIn', 'idle', 'odogap', 'nonorm', 'nogps'];
+    var order = ['outsider', 'wrongfuel', 'fuel', 'odometer', 'overflow', 'foreignOut', 'foreignIn', 'idle', 'deficit', 'grade', 'odogap', 'nonorm', 'nogps'];
     var best = null;
     order.some(function (t) { best = c.issues.filter(function (i) { return i.type === t; })[0]; return best; });
     return best ? best.text : 'Замечаний нет';
@@ -326,20 +329,23 @@
     var yearly = T.unexplainedTg / months * 12;
     var hasMoney = T.unexplainedTg > 0 || T.unexplainedL > 0;
     var h = '';
-    if (state.demo) h += '<div class="explain no-print" style="margin-bottom:16px">Это пример на выдуманных данных. В нём спрятаны четыре нарушения: заправки чужой машины картой компании, слив, подкрученный одометр и карта, «гуляющая» между машинами парка. Нажмите на машину, чтобы посмотреть подробности.</div>';
+    if (state.demo) h += '<div class="explain no-print" style="margin-bottom:16px">Это пример на выдуманных данных. В нём спрятаны четыре нарушения: по карте дизельного грузовика покупают бензин для чужой машины, слив в канистру, подкрученный одометр и карта машины, которая стоит в ремонте. Выгрузка АЗС — как настоящая: только номер карты, без госномера. Нажмите на машину, чтобы посмотреть подробности.</div>';
     h += '<div class="total' + (hasMoney ? '' : ' ok') + '">' +
       '<div class="total-label">Не объяснено за период ' + esc(period) + '</div>' +
       '<div class="total-num">' + (T.unexplainedTg > 0 ? tg(T.unexplainedTg) : fmt(T.unexplainedL) + ' л') + '</div>' +
-      '<div class="total-sub">' + (hasMoney ? fmt(T.unexplainedL) + ' л топлива: заправлено сверх нормы на пробег по GPS или ушло в чужие машины' + (T.outsiderL ? ', из них ' + fmt(T.outsiderL) + ' л — в машины не из вашего парка' : '') + (T.unknownL ? (T.outsiderL ? ', ' : ', из них ') + fmt(T.unknownL) + ' л — по неизвестным картам' : '') : 'Расхождений выше порога не найдено — хороший результат.') + '</div>' +
+      '<div class="total-sub">' + (hasMoney ? fmt(T.unexplainedL) + ' л топлива по картам компании не объяснено пробегом машин' + totalParts(T) : 'Расхождений выше порога не найдено — хороший результат.') + '</div>' +
       (T.unexplainedTg > 0 && months < 2 ? '<div class="total-year">Если так каждый месяц — это <b>≈ ' + tg(Math.round(yearly / 1000) * 1000) + ' в год</b>.</div>' : '') +
+      (T.deficitCars ? '<div class="total-year">У ' + T.deficitCars + ' ' + plural(T.deficitCars, 'машины', 'машин', 'машин') + ' заправок, наоборот, меньше нормы — на ' + fmt(T.deficitL) + ' л. Если их заправляли картами других машин парка, часть этой суммы — топливо для них, а не потеря.</div>' : '') +
       '</div>';
     h += '<div class="stats">' +
       stat(T.cars, 'машин проверено') +
       stat('<span style="color:var(--red)">' + T.red + '</span>', 'красных — проверить срочно') +
       stat('<span style="color:var(--yellow-ink)">' + T.yellow + '</span>', 'жёлтых — есть вопросы') +
       stat('<span style="color:var(--green-ink)">' + T.green + '</span>', 'зелёных — в норме') +
-      stat('<span style="color:' + (T.outsiderCount ? 'var(--red)' : 'inherit') + '">' + T.outsiderCount + '</span>', 'заправок машин не из парка' + (T.outsiderTg ? ' · ' + tg(T.outsiderTg) : '')) +
-      stat(T.foreignCount, 'заправок картой другой машины парка') +
+      stat('<span style="color:' + (suspicious().length ? 'var(--red)' : 'inherit') + '">' + suspicious().length + '</span>', 'подозрительных заправок по картам') +
+      (T.wrongCount ? stat('<span style="color:var(--red)">' + T.wrongCount + '</span>', 'не тем топливом · ' + tg(T.wrongTg)) : '') +
+      (T.outsiderCount ? stat('<span style="color:var(--red)">' + T.outsiderCount + '</span>', 'заправок машин не из парка · ' + tg(T.outsiderTg)) : '') +
+      (T.foreignCount ? stat(T.foreignCount, 'заправок картой другой машины парка') : '') +
       stat(fmt(T.fuelL), 'литров заправлено всего') + '</div>';
 
     h += '<div class="card"><h3 style="margin-top:0">ТОП-5 машин с расхождениями</h3>';
@@ -369,6 +375,29 @@
       el.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
     });
   }
+  function plural(n, one, few, many) {
+    var m10 = n % 10, m100 = n % 100;
+    return m10 === 1 && m100 !== 11 ? one : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
+  }
+  function totalParts(T) {
+    var parts = [];
+    if (T.wrongL) parts.push(fmt(T.wrongL) + ' л — не то топливо для машины');
+    if (T.outsiderL) parts.push(fmt(T.outsiderL) + ' л — машины не из вашего парка');
+    if (T.unknownL) parts.push(fmt(T.unknownL) + ' л — по неизвестным картам');
+    var rest = T.unexplainedL - T.wrongL - T.outsiderL - T.unknownL;
+    if (rest > 0.5 && parts.length) parts.unshift(fmt(rest) + ' л — сверх нормы на пробег по GPS');
+    return parts.length ? ': ' + parts.join(', ') : ' — заправлено сверх нормы на пробег по GPS';
+  }
+  /** Все заправки с отметками: не то топливо, больше бака, в день простоя, вторая за день, чужие и неизвестные карты. */
+  function suspicious() {
+    var R = state.result, out = [];
+    if (!R) return out;
+    R.cars.forEach(function (c) { c.fuelings.forEach(function (f) { if (f.flags.length) out.push({ car: c.car, f: f }); }); });
+    R.outsiderFuel.forEach(function (f) { out.push({ car: f.ownerCar || '—', f: f }); });
+    R.unknownFuel.forEach(function (f) { out.push({ car: '—', f: f }); });
+    return out.sort(function (a, b) { return (a.f.date + a.f.time) < (b.f.date + b.f.time) ? -1 : 1; });
+  }
+  function isRed(f) { return !!(f.wrongFuel || f.overflowL || f.outsider || !f.actualCar); }
   function stat(v, l) { return '<div class="stat"><div class="stat-v">' + v + '</div><div class="stat-l">' + l + '</div></div>'; }
 
   function destroyCharts() { state.charts.forEach(function (ch) { ch.destroy(); }); state.charts = []; }
@@ -384,7 +413,7 @@
       '</select>' + badge(c.status) + '<span class="print-only"><b>' + esc(c.car) + '</b></span></div>';
 
     h += '<div class="card"><div class="kpis">' +
-      kpi('Норма', c.norm ? fmt(c.norm, 1) + ' <small>л/100 км</small>' : 'нет') +
+      kpi('Норма', c.norm ? fmt(c.norm, 1) + ' <small>л/100 км' + (c.fuelTypes.length ? ' · ' + esc(c.fuelTypes.join(', ')) : '') + (c.tank ? ' · бак ' + fmt(c.tank) + ' л' : '') + '</small>' : 'нет') +
       kpi('Пробег по GPS', c.hasGps ? fmt(c.gpsKm) + ' <small>км</small>' : 'нет данных') +
       kpi('По путевым листам', c.hasWb ? fmt(c.wbKm) + ' <small>км</small>' + (c.wbDiffPct != null ? ' <small>(' + (c.wbDiffPct > 0 ? '+' : '') + pct(c.wbDiffPct) + ')</small>' : '') : 'нет данных', c.wbFlag) +
       kpi('Заправлено', fmt(c.fuelL) + ' <small>л · ' + tg(c.fuelTg) + '</small>') +
@@ -428,12 +457,12 @@
 
   function fuelTable(rows, showCar) {
     if (!rows.length) return '<p class="empty">Заправок нет</p>';
-    return '<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Время</th><th>Карта</th>' + (showCar ? '<th>Заправлена машина</th>' : '') + '<th>АЗС</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Отметки</th></tr></thead><tbody>' +
+    return '<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Время</th><th>Карта</th>' + (showCar ? '<th>Заправлена машина</th>' : '') + '<th>АЗС</th><th>Топливо</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Отметки</th></tr></thead><tbody>' +
       rows.map(function (f) {
-        var cls = f.flags.length ? (f.foreign ? ' class="flag-red"' : ' class="flag"') : '';
+        var cls = f.flags.length ? (f.foreign || isRed(f) ? ' class="flag-red"' : ' class="flag"') : '';
         return '<tr' + cls + '><td>' + fdate(f.date) + '</td><td>' + esc(f.time) + '</td><td>' + esc(f.card) + (f.reserveCard ? ' <span class="muted small">(резерв)</span>' : '') + '</td>' +
           (showCar ? '<td>' + esc(f.actualCar || '—') + '</td>' : '') +
-          '<td>' + esc(f.station) + '</td><td class="r">' + fmt(f.liters, 1) + '</td><td class="r">' + fmt(f.amount) + '</td><td class="flags">' + esc(f.flags.join('; ')) + '</td></tr>';
+          '<td>' + esc(f.station) + '</td><td>' + esc(f.fuelType || '') + '</td><td class="r">' + fmt(f.liters, 1) + '</td><td class="r">' + fmt(f.amount) + '</td><td class="flags">' + esc(f.flags.join('; ')) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
 
@@ -471,53 +500,60 @@
   }
 
   function renderCards() {
-    var R = state.result, h = '';
-    h += '<div class="explain" style="margin-bottom:16px">Каждая топливная карта считается как отдельный счёт: сколько литров по ней ушло и в какие машины. ' +
+    var R = state.result, T = R.totals, h = '';
+    h += '<div class="explain" style="margin-bottom:16px">Каждая топливная карта — отдельный счёт: сколько литров по ней ушло и куда. ' +
       (state.fuelHasCar
-        ? 'В выгрузке АЗС есть госномер — поэтому видно, какую машину на самом деле заправили.'
-        : 'В вашей выгрузке АЗС нет колонки с госномером, поэтому заправки чужих машин видны косвенно: как перерасход у машины, за которой закреплена карта (сводка и «По машине»), и как заправки в дни, когда она стояла (по GPS).') + '</div>';
+        ? 'В вашей выгрузке АЗС есть госномер — поэтому дополнительно видно, какую машину заправили на самом деле.'
+        : 'В выгрузке АЗС только номер карты, поэтому чужую машину видно по косвенным признакам: не то топливо, заправка больше бака, заправка в день, когда машина не ездила, вторая заправка за день — и по перерасходу у машины, за которой закреплена карта.') + '</div>';
 
-    var T = R.totals;
-    h += '<div class="card"><h3 style="margin-top:0">Заправки машин не из вашего парка' + (T.outsiderCount ? ' — ' + tg(T.outsiderTg) : '') + '</h3>';
+    var rows = suspicious(), sl = 0, st = 0;
+    rows.forEach(function (x) { sl += x.f.liters; st += x.f.amount; });
+    h += '<div class="card"><h3 style="margin-top:0">Подозрительные заправки по картам' + (rows.length ? ' — ' + rows.length + ' шт., ' + fmt(sl) + ' л, ' + tg(st) : '') + '</h3>';
+    if (rows.length) {
+      h += '<div class="table-scroll"><table><thead><tr><th>Карта машины</th><th>Дата</th><th>Время</th><th>Карта</th><th>АЗС</th><th>Топливо</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Почему подозрительно</th></tr></thead><tbody>' +
+        rows.map(function (x) {
+          var f = x.f;
+          return '<tr class="' + (isRed(f) ? 'flag-red' : 'flag') + '"><td><b>' + esc(x.car) + '</b></td><td>' + fdate(f.date) + '</td><td>' + esc(f.time) + '</td><td>' + esc(f.card) + '</td><td>' + esc(f.station) + '</td><td>' + esc(f.fuelType || '') + '</td><td class="r">' + fmt(f.liters, 1) + '</td><td class="r">' + fmt(f.amount) + '</td><td class="flags">' + esc(f.flags.join('; ')) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      h += '<p class="small muted">Красным — почти наверняка не в эту машину (не то топливо, не помещается в бак, неизвестная карта). Жёлтым — стоит спросить водителя. Сумма в заголовке — все такие заправки целиком, а не только «лишние» литры.' +
+        (!R.cars.some(function (c) { return c.fuelTypes.length; }) ? ' Чтобы ловить «не то топливо», укажите в справочнике вид топлива машин.' : '') +
+        (!R.cars.some(function (c) { return c.tank; }) ? ' Чтобы ловить «больше бака», укажите объём бака.' : '') + '</p>';
+    } else h += '<p class="empty">Подозрительных заправок не найдено.</p>';
+    h += '</div>';
+
+    var deficit = R.cars.filter(function (c) { return c.issues.some(function (i) { return i.type === 'deficit'; }); });
+    if (deficit.length) {
+      h += '<div class="card"><h3 style="margin-top:0">Машины, которым по их картам заправок не хватает на пробег</h3><ul class="issues">' +
+        deficit.map(function (c) { return '<li class="yellow"><span class="ico">?</span><span><b>' + esc(c.car) + '</b>: ' + esc(c.issues.filter(function (i) { return i.type === 'deficit'; })[0].text) + '</span></li>'; }).join('') +
+        '</ul><p class="small muted">Пара к перерасходу: если у одной машины топлива больше нормы, а у другой меньше — возможно, вторую заправляли картой первой.</p></div>';
+    }
+
     if (R.outsiders.length) {
-      h += '<div class="table-scroll"><table><thead><tr><th>Заправлена машина</th><th>Карта</th><th>Закреплена за</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Даты</th></tr></thead><tbody>' +
+      h += '<div class="card"><h3 style="margin-top:0">Заправки машин не из вашего парка — ' + tg(T.outsiderTg) + '</h3>' +
+        '<div class="table-scroll"><table><thead><tr><th>Заправлена машина</th><th>Карта</th><th>Закреплена за</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Даты</th></tr></thead><tbody>' +
         R.outsiders.map(function (o) {
           return '<tr class="flag-red"><td><b>' + esc(o.plate) + '</b></td><td>' + esc(o.card) + '</td><td><b>' + esc(o.ownerCar || 'не закреплена') + '</b></td><td class="r">' + o.count + '</td><td class="r">' + fmt(o.liters, 1) + '</td><td class="r">' + fmt(o.amount) + '</td><td>' +
             o.rows.map(function (f) { return fdate(f.date).slice(0, 5) + (f.time ? ' ' + esc(f.time) : ''); }).join(', ') + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
-      h += '<p class="small muted">Это машины, которых нет ни в справочнике, ни в GPS, ни в путевых листах. Что проверить: чья это машина, кто был водителем у машины-владельца карты в эти дни. Если это ваша машина или номер на АЗС записан с ошибкой — добавьте его в справочник и нажмите «Проверить» ещё раз.</p>';
-    } else h += '<p class="empty">' + (state.fuelHasCar ? 'Не найдено: все заправки — машины вашего парка.' : 'Без госномера в выгрузке АЗС такие заправки напрямую не видны — смотрите перерасход по машинам и заправки в дни простоя ниже.') + '</p>';
-    h += '</div>';
-
-    h += '<div class="card"><h3 style="margin-top:0">Картой одной машины парка заправили другую</h3>';
+        }).join('') + '</tbody></table></div>' +
+        '<p class="small muted">Госномера из выгрузки АЗС, которых нет ни в справочнике, ни в GPS, ни в путевых листах. Если это ваша машина или опечатка — добавьте номер в справочник и нажмите «Проверить» ещё раз.</p></div>';
+    }
     if (R.flows.length) {
-      h += '<div class="table-scroll"><table><thead><tr><th>Карта</th><th>Закреплена за</th><th>Заправляла</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th class="r">Из них владелец стоял</th></tr></thead><tbody>' +
+      h += '<div class="card"><h3 style="margin-top:0">Картой одной машины парка заправили другую</h3>' +
+        '<div class="table-scroll"><table><thead><tr><th>Карта</th><th>Закреплена за</th><th>Заправляла</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th class="r">Из них владелец стоял</th></tr></thead><tbody>' +
         R.flows.map(function (f) {
           return '<tr class="flag-red"><td>' + esc(f.card) + '</td><td><b>' + esc(f.ownerCar || 'не закреплена') + '</b></td><td><b>' + esc(f.actualCar) + '</b></td><td class="r">' + f.count + '</td><td class="r">' + fmt(f.liters, 1) + '</td><td class="r">' + fmt(f.amount) + '</td><td class="r">' + (f.ownerCar ? f.ownerIdle + ' дн.' : '—') + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
-      h += '<p class="small muted">Что проверить: кто был водителем в эти дни, почему не работала своя карта, не уходило ли топливо в канистры. Особенно подозрительно, если машина-владелец карты в это время стояла.</p>';
-    } else h += '<p class="empty">' + (state.fuelHasCar ? 'Не найдено: каждая карта заправляла свою машину.' : 'Без госномера в выгрузке АЗС прямые перетоки не видны — смотрите заправки в дни простоя ниже.') + '</p>';
-    h += '</div>';
-
-    var idle = [];
-    R.cars.forEach(function (c) { c.idleFuel.forEach(function (f) { idle.push({ car: c.car, f: f }); }); });
-    if (idle.length) {
-      h += '<div class="card"><h3 style="margin-top:0">Заправки в дни, когда машина не ездила (' + idle.length + ')</h3><div class="table-scroll"><table><thead><tr><th>Машина</th><th>Дата</th><th>Время</th><th>Карта</th><th>АЗС</th><th class="r">Литры</th><th class="r">Сумма, ₸</th></tr></thead><tbody>' +
-        idle.map(function (x) { return '<tr class="flag"><td><b>' + esc(x.car) + '</b></td><td>' + fdate(x.f.date) + '</td><td>' + esc(x.f.time) + '</td><td>' + esc(x.f.card) + '</td><td>' + esc(x.f.station) + '</td><td class="r">' + fmt(x.f.liters, 1) + '</td><td class="r">' + fmt(x.f.amount) + '</td></tr>'; }).join('') +
-        '</tbody></table></div></div>';
-    }
-
-    if (R.unknownFuel.length) {
-      h += '<div class="card"><h3 style="margin-top:0">Неизвестные карты — не закреплены ни за одной машиной (' + R.unknownFuel.length + ' заправок)</h3>' + fuelTable(R.unknownFuel, false) + '</div>';
+        }).join('') + '</tbody></table></div></div>';
     }
     if (R.cardConflicts.length) {
       h += '<div class="card"><h3 style="margin-top:0">Одна карта закреплена за несколькими машинами</h3><ul>' + R.cardConflicts.map(function (x) { return '<li>' + esc(x.card) + ': ' + esc(x.cars.join(', ')) + '</li>'; }).join('') + '</ul></div>';
     }
 
-    h += '<div class="card"><h3 style="margin-top:0">Баланс по каждой карте</h3><div class="table-scroll"><table><thead><tr><th>Карта</th><th>Закреплена за</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th>Куда ушло топливо</th></tr></thead><tbody>' +
+    h += '<div class="card"><h3 style="margin-top:0">Баланс по каждой карте</h3><div class="table-scroll"><table><thead><tr><th>Карта</th><th>Закреплена за</th><th class="r">Заправок</th><th class="r">Литры</th><th class="r">Сумма, ₸</th><th class="r">Подозрительных</th><th>Куда ушло топливо</th></tr></thead><tbody>' +
       R.cards.map(function (cs) {
-        var bad = cs.foreignL > 0 || !cs.owner;
-        return '<tr' + (cs.outsiderL > 0 ? ' class="flag-red"' : bad ? ' class="flag"' : '') + '><td>' + esc(cs.card) + (cs.reserve ? ' <span class="muted small">(резерв)</span>' : '') + '</td><td>' + esc(cs.owner || '— нет —') + '</td><td class="r">' + cs.count + '</td><td class="r">' + fmt(cs.liters, 1) + '</td><td class="r">' + fmt(cs.amount) + '</td><td>' +
+        var susp = rows.filter(function (x) { return C.cardKey(x.f.card) === C.cardKey(cs.card); });
+        var red = susp.some(function (x) { return isRed(x.f); }) || cs.outsiderL > 0 || !cs.owner;
+        var cls = red ? ' class="flag-red"' : (susp.length || cs.foreignL > 0 ? ' class="flag"' : '');
+        return '<tr' + cls + '><td>' + esc(cs.card) + (cs.reserve ? ' <span class="muted small">(резерв)</span>' : '') + '</td><td>' + esc(cs.owner || '— нет —') + '</td><td class="r">' + cs.count + '</td><td class="r">' + fmt(cs.liters, 1) + '</td><td class="r">' + fmt(cs.amount) + '</td><td class="r">' + (susp.length || '') + '</td><td>' +
           cs.byCarList.map(function (b) {
             var t = esc(b.car) + ': ' + fmt(b.liters) + ' л';
             return b.own ? t : (b.outsider ? '<b style="color:var(--red)">' + t + '</b>' : '<b>' + t + '</b>');
@@ -551,8 +587,8 @@
     var lines = ['Сверка ГСМ: итог за ' + fdate(R.period.from) + ' — ' + fdate(R.period.to),
       'Машин: ' + T.cars + ' (красных ' + T.red + ', жёлтых ' + T.yellow + ', зелёных ' + T.green + ')',
       'Не объяснено: ' + fmt(T.unexplainedL) + ' л ≈ ' + fmt(T.unexplainedTg) + ' ₸',
-      'Заправок машин не из парка: ' + T.outsiderCount + (T.outsiderTg ? ' (' + fmt(T.outsiderL) + ' л ≈ ' + fmt(T.outsiderTg) + ' ₸)' : ''),
-      'Заправок картой другой машины парка: ' + T.foreignCount, '', 'ТОП машин:'];
+      'Подозрительных заправок по картам: ' + suspicious().length + (T.wrongCount ? ', из них не тем топливом: ' + T.wrongCount + ' (' + fmt(T.wrongL) + ' л ≈ ' + fmt(T.wrongTg) + ' ₸)' : ''),
+      '', 'ТОП машин:'];
     R.top5.forEach(function (c, i) { lines.push((i + 1) + '. ' + c.car + ' — ' + mainIssue(c)); });
     return lines.join('\n');
   }
@@ -575,19 +611,24 @@
     var sum = [['Сверка ГСМ — отчёт за период', fdate(R.period.from) + ' — ' + fdate(R.period.to)],
       ['Не объяснено, л', r1(R.totals.unexplainedL)], ['Не объяснено, ₸', Math.round(R.totals.unexplainedTg)],
       ['Машин', R.totals.cars], ['Красных', R.totals.red], ['Жёлтых', R.totals.yellow], ['Зелёных', R.totals.green],
-      ['Заправок машин не из парка', R.totals.outsiderCount], ['Из них, ₸', Math.round(R.totals.outsiderTg)],
-      ['Заправок картой другой машины парка', R.totals.foreignCount], [],
-      ['Машина', 'Статус', 'Норма, л/100', 'GPS, км', 'Путевые, км', 'Путевые к GPS, %', 'Заправлено, л', 'Сумма, ₸', 'Остаток нач., л', 'Остаток кон., л', 'Расчётный пробег, км', 'Нужно по норме, л', 'Перерасход, л', 'Перерасход, %', 'Не объяснено, л', 'Не объяснено, ₸', 'Замечания']];
+      ['Подозрительных заправок по картам', suspicious().length],
+      ['Не тем топливом, л', r1(R.totals.wrongL)], ['Не тем топливом, ₸', Math.round(R.totals.wrongTg)],
+      ['Заправок машин не из парка', R.totals.outsiderCount], ['Заправок картой другой машины парка', R.totals.foreignCount], [],
+      ['Машина', 'Статус', 'Топливо', 'Бак, л', 'Норма, л/100', 'GPS, км', 'Путевые, км', 'Путевые к GPS, %', 'Заправлено, л', 'Сумма, ₸', 'Остаток нач., л', 'Остаток кон., л', 'Расчётный пробег, км', 'Нужно по норме, л', 'Перерасход, л', 'Перерасход, %', 'Не объяснено, л', 'Не объяснено, ₸', 'Замечания']];
     R.cars.forEach(function (c) {
-      sum.push([c.car, STATUS[c.status], c.norm || '', r1(c.gpsKm), r1(c.wbKm), r1(c.wbDiffPct), r1(c.fuelL), Math.round(c.fuelTg), c.startFuel, c.endFuel, r1(c.calcKm), r1(c.expectedL), r1(c.excessL), r1(c.excessPct), r1(c.unexplainedL), Math.round(c.unexplainedTg), c.issues.map(function (i) { return i.text; }).join('; ')]);
+      sum.push([c.car, STATUS[c.status], c.fuelTypes.join(', '), c.tank || '', c.norm || '', r1(c.gpsKm), r1(c.wbKm), r1(c.wbDiffPct), r1(c.fuelL), Math.round(c.fuelTg), c.startFuel, c.endFuel, r1(c.calcKm), r1(c.expectedL), r1(c.excessL), r1(c.excessPct), r1(c.unexplainedL), Math.round(c.unexplainedTg), c.issues.map(function (i) { return i.text; }).join('; ')]);
     });
-    addSheet(wb, sum, 'Сводка', [16, 18, 10, 10, 10, 12, 12, 12, 10, 10, 12, 12, 12, 12, 12, 12, 80]);
+    addSheet(wb, sum, 'Сводка', [16, 18, 10, 8, 10, 10, 10, 12, 12, 12, 10, 10, 12, 12, 12, 12, 12, 12, 80]);
 
-    var fl = [['Машина', 'Дата', 'Время', 'Карта', 'Закреплена за', 'АЗС', 'Литры', 'Сумма, ₸', 'Отметки']];
-    R.cars.forEach(function (c) { c.fuelings.forEach(function (f) { fl.push([c.car, fdate(f.date), f.time, f.card, f.ownerCar || '', f.station, f.liters, f.amount, f.flags.join('; ')]); }); });
-    R.outsiderFuel.forEach(function (f) { fl.push([f.actualCar + ' (не из парка)', fdate(f.date), f.time, f.card, f.ownerCar || '', f.station, f.liters, f.amount, f.flags.join('; ')]); });
-    R.unknownFuel.forEach(function (f) { fl.push(['—', fdate(f.date), f.time, f.card, '', f.station, f.liters, f.amount, f.flags.join('; ')]); });
-    addSheet(wb, fl, 'Заправки', [14, 12, 8, 16, 14, 30, 10, 12, 60]);
+    var fl = [['Машина', 'Дата', 'Время', 'Карта', 'Закреплена за', 'АЗС', 'Топливо', 'Литры', 'Сумма, ₸', 'Отметки']];
+    R.cars.forEach(function (c) { c.fuelings.forEach(function (f) { fl.push([c.car, fdate(f.date), f.time, f.card, f.ownerCar || '', f.station, f.fuelType || '', f.liters, f.amount, f.flags.join('; ')]); }); });
+    R.outsiderFuel.forEach(function (f) { fl.push([f.actualCar + ' (не из парка)', fdate(f.date), f.time, f.card, f.ownerCar || '', f.station, f.fuelType || '', f.liters, f.amount, f.flags.join('; ')]); });
+    R.unknownFuel.forEach(function (f) { fl.push(['—', fdate(f.date), f.time, f.card, '', f.station, f.fuelType || '', f.liters, f.amount, f.flags.join('; ')]); });
+    addSheet(wb, fl, 'Заправки', [14, 12, 8, 16, 14, 30, 10, 10, 12, 60]);
+
+    var sp = [['Карта машины', 'Дата', 'Время', 'Карта', 'АЗС', 'Топливо', 'Литры', 'Сумма, ₸', 'Почему подозрительно']];
+    suspicious().forEach(function (x) { var f = x.f; sp.push([x.car, fdate(f.date), f.time, f.card, f.station, f.fuelType || '', f.liters, f.amount, f.flags.join('; ')]); });
+    addSheet(wb, sp, 'Подозрительные заправки', [14, 12, 8, 16, 30, 10, 10, 12, 70]);
 
     var cf = [['Заправки машин не из парка'], ['Заправлена машина', 'Карта', 'Закреплена за', 'Заправок', 'Литры', 'Сумма, ₸']];
     R.outsiders.forEach(function (o) { cf.push([o.plate, o.card, o.ownerCar || 'не закреплена', o.count, r1(o.liters), Math.round(o.amount)]); });
@@ -625,7 +666,7 @@
     $('#btnDemo').addEventListener('click', loadDemo);
     $('#btnCheck').addEventListener('click', runCheck);
     $('#btnAddCar').addEventListener('click', function () {
-      state.refs.push({ car: '', norm: '', cards: '', reserve: '', startFuel: '0', endFuel: '0' });
+      state.refs.push({ car: '', norm: '', cards: '', reserve: '', startFuel: '0', endFuel: '0', fuelType: '', tank: '' });
       renderRefs();
       var inputs = $$('#refsTable tbody tr:last-child input'); if (inputs[0]) inputs[0].focus();
     });
