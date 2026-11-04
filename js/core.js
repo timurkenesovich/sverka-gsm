@@ -483,6 +483,13 @@
       }
       if (!hasGps && (fuelL > 0 || hasWb)) issues.push({ type: 'nogps', severity: 'yellow', text: 'Нет данных GPS — сверка по путевым листам' });
 
+      // Повторная заправка в тот же день — частый признак слива в канистру
+      var byDay = {};
+      c.fuelings.forEach(function (f) {
+        if (byDay[f.date]) f.flags.push('Вторая заправка за день (первая в ' + (byDay[f.date].time || '—') + ', ' + fmtNum(byDay[f.date].liters, 1) + ' л)');
+        else byDay[f.date] = f;
+      });
+
       // Заправки в дни простоя машины (по GPS)
       var idleFuel = [];
       if (hasGps) {

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Сверка ГСМ — проверка за вечер</title>
+  <meta name="description" content="Загрузите GPS, путевые листы и выгрузку АЗС — и увидите, где расход топлива не сходится с пробегом. Всё считается в браузере, данные никуда не отправляются.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23163a56'/%3E%3Cpath d='M16 6c-4 6-7 9.5-7 13a7 7 0 0 0 14 0c0-3.5-3-7-7-13z' fill='%23f5b83d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-in">
+      <a class="logo" href="#top"><span class="logo-drop" aria-hidden="true"></span>Сверка ГСМ</a>
+      <a class="topbar-cta" href="#expert">Разобрать с экспертом</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Проверка за вечер · для автопарков от 5 до 50 машин</p>
+        <h1>Где расход топлива не сходится с пробегом — и чьими картами заправляются ваши машины</h1>
+        <p class="lead">Загрузите три выгрузки за месяц: GPS, путевые листы и отчёт по топливным картам. Через минуту увидите сумму расхождений в тенге, светофор по каждой машине и перетоки карт.</p>
+        <div class="privacy" role="note">
+          <svg class="privacy-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.8-4.8 1.4 1.4-6.2 6.2z"/></svg>
+          <div>
+            <strong>Ваши данные никуда не отправляются.</strong>
+            <span>Все расчёты идут прямо в вашем браузере, на вашем компьютере. Файлы не загружаются на сервер — его здесь просто нет. После открытия страницы можно даже отключить интернет.</span>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-primary btn-lg" id="btnDemo" type="button">Попробовать на примере</button>
+          <a class="btn btn-ghost btn-lg" href="#upload">Загрузить свои данные</a>
+        </div>
+        <p class="hero-note">Пример — выдуманный автопарк из 12 машин, в котором спрятаны три нарушения. Найдёте их за минуту.</p>
+      </div>
+    </section>
+
+    <section class="wrap section" id="upload">
+      <h2><span class="step">1</span> Загрузите выгрузки за месяц</h2>
+      <p class="muted">Подходят файлы Excel (XLSX, XLS) и CSV. Перетащите файл в нужное поле или нажмите на него. Если названия колонок отличаются — укажите вручную, какая колонка что означает.</p>
+      <div class="drops" id="drops"></div>
+      <p class="samples">Нет своих файлов под рукой? Посмотрите, как они выглядят: <span id="sampleLinks"></span></p>
+
+      <h2 class="mt"><span class="step">2</span> Справочник машин</h2>
+      <p class="muted">Норма расхода и закреплённые карты. Машины из загруженных файлов добавятся сами — останется вписать нормы и номера карт. Можно загрузить справочник файлом (четвёртое поле выше). Остатки в баке на начало и конец месяца — если не знаете, оставьте 0.</p>
+      <div class="table-scroll">
+        <table class="refs" id="refsTable">
+          <thead><tr>
+            <th>Машина (госномер)</th><th>Норма, л/100&nbsp;км</th><th>Закреплённые карты</th><th>Резервные карты бывших машин</th><th>Остаток на начало, л</th><th>Остаток на конец, л</th><th aria-label="Удалить"></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="refs-actions">
+        <button class="btn btn-ghost" id="btnAddCar" type="button">+ Добавить машину</button>
+        <span class="muted small">Несколько карт — через запятую.</span>
+      </div>
+      <div id="cardHints"></div>
+
+      <details class="settings">
+        <summary>Пороги проверки</summary>
+        <div class="settings-grid">
+          <label>Погрешность GPS, ±%<input type="number" id="setGps" value="5" min="0" step="0.5" inputmode="decimal"></label>
+          <label>Допуск расхода сверх нормы, %<input type="number" id="setFuel" value="5" min="0" step="0.5" inputmode="decimal"></label>
+          <label>«Красный» при расхождении больше, %<input type="number" id="setRed" value="15" min="0" step="1" inputmode="decimal"></label>
+          <label>Цена литра, ₸ (если в выгрузке АЗС нет суммы)<input type="number" id="setPrice" value="0" min="0" step="1" inputmode="decimal"></label>
+        </div>
+        <p class="muted small">Ниже порогов расхождения не подсвечиваются — это обычная погрешность GPS и разница расхода в пути.</p>
+      </details>
+
+      <div class="check-row">
+        <button class="btn btn-primary btn-lg" id="btnCheck" type="button">Проверить</button>
+        <span id="checkMsg" class="check-msg" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="results" id="results" hidden>
+      <div class="wrap">
+        <nav class="tabs" role="tablist" aria-label="Разделы отчёта">
+          <button role="tab" class="tab" data-tab="summary" aria-selected="true">Сводка</button>
+          <button role="tab" class="tab" data-tab="car" aria-selected="false">По машине</button>
+          <button role="tab" class="tab" data-tab="cards" aria-selected="false">Чьи карты?</button>
+          <button role="tab" class="tab" data-tab="export" aria-selected="false">Отчёт</button>
+        </nav>
+        <div class="panel" id="panel-summary" data-panel="summary"></div>
+        <div class="panel" id="panel-car" data-panel="car" hidden></div>
+        <div class="panel" id="panel-cards" data-panel="cards" hidden></div>
+        <div class="panel" id="panel-export" data-panel="export" hidden></div>
+      </div>
+    </section>
+
+    <section class="expert" id="expert">
+      <div class="wrap expert-in">
+        <div>
+          <h2>Хотите разобрать результат с экспертом — напишите</h2>
+          <p>Программа показывает, <em>где</em> не сходится. Эксперт помогает понять, <em>почему</em>, и что с этим делать:</p>
+          <ul class="ticks">
+            <li>разбор каждой «красной» машины: слив, ошибка нормы или сбой GPS;</li>
+            <li>какие нормы расхода поставить с учётом сезона, простоя и груза;</li>
+            <li>как закрепить карты и лимиты, чтобы они не «гуляли»;</li>
+            <li>порядок проверки на следующий месяц — чтобы схемы не вернулись.</li>
+          </ul>
+          <p class="muted small" id="auditPrice"></p>
+        </div>
+        <div class="expert-box">
+          <p class="expert-title">Экспресс-аудит топлива</p>
+          <p>Пришлите итог проверки — обсудим ваш автопарк за 30 минут.</p>
+          <a class="btn btn-accent btn-lg" id="contactLink" href="#contact" target="_blank" rel="noopener">Написать эксперту</a>
+          <button class="btn btn-ghost-light" id="btnCopy2" type="button">Скопировать итог проверки</button>
+          <p class="small expert-hint">Итог копируется в буфер обмена на вашем устройстве — вставьте его в сообщение сами. Страница ничего не отправляет.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p>Сверка ГСМ, версия 1. Расчёты носят справочный характер: расхождение — повод проверить, а не доказательство. Данные обрабатываются только в вашем браузере.</p>
+    </div>
+  </footer>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
